@@ -74,8 +74,16 @@
         break;
       case "state":
         $("score").textContent = m.score || 0;
-        $("loginwrap").classList.toggle("hidden", !!m.loggedIn && !m.reauth);
-        $("spbtn").textContent = m.loggedIn && m.reauth ? "Reconnect Spotify (lets the TV play music)" : "Connect Spotify on the TV";
+        // Login button is always available; prominent only when it's needed.
+        var needed = !m.loggedIn || m.reauth;
+        $("spbtn").textContent = !m.loggedIn ? "Connect Spotify on the TV" : m.reauth ? "Reconnect Spotify (lets the TV play music)" : "Reconnect Spotify";
+        $("spbtn").className = needed ? "" : "secondary";
+        $("spbtn").style.background = needed ? "#1db954" : "";
+        $("sphint").classList.toggle("hidden", !needed);
+        var sp = { ready: "🔊 TV speaker ready – music plays on the TV", loading: "TV speaker is starting…",
+          unsupported: "📺 This TV browser can't play Spotify – open the Spotify app on another phone, laptop or speaker and play/pause a song once.",
+          reauth: "Tap Reconnect so the TV can play music itself." }[m.tvSpeaker] || "";
+        $("tvspeaker").textContent = m.loggedIn ? sp : "";
         if (m.loggedIn && !S.pendingToken) setSpotifyStatus("");
         $("offset").textContent = "(" + (m.offset >= 0 ? "+" : "") + Number(m.offset || 0).toFixed(1) + " s)";
         if (m.track) {

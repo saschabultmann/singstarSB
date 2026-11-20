@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#120d2b">
 <title>SingStar Party – Mic</title>
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 <style>
   body { padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); min-height: 100vh; }
   .card { background: rgba(255,255,255,.06); border-radius: 20px; padding: 16px; margin-bottom: 14px; }
@@ -75,8 +75,9 @@
     <div id="song">Nothing playing yet</div>
     <div id="loginwrap" style="margin-top:12px">
       <button id="spbtn" style="width:100%;background:#1db954">Connect Spotify on the TV</button>
-      <p style="font-size:13px;opacity:.65;margin:8px 0 0">Log in with your Spotify Premium account here – the TV takes over the login, no typing on the TV needed.</p>
+      <p id="sphint" style="font-size:13px;opacity:.65;margin:8px 0 0">Log in with your Spotify Premium account here – the TV takes over the login, no typing on the TV needed.</p>
     </div>
+    <div id="tvspeaker" style="font-size:14px;margin-top:8px;opacity:.85"></div>
     <div id="spstatus" style="font-size:14px;color:var(--accent);margin-top:8px"></div>
     <div class="row ctl" style="margin-top:12px">
       <button class="secondary" data-a="prev">⏮</button>
@@ -103,10 +104,10 @@
 
 <div id="msg"></div>
 
-<script src="config.js?v=5"></script>
+<script src="config.js?v=6"></script>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="spotify.js?v=5"></script>
-<script src="pitch.js?v=5"></script>
-<script src="mic.js?v=5"></script>
+<script src="spotify.js?v=6"></script>
+<script src="pitch.js?v=6"></script>
+<script src="mic.js?v=6"></script>
 </body>
 </html>
