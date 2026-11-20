@@ -74,7 +74,8 @@
         break;
       case "state":
         $("score").textContent = m.score || 0;
-        $("loginwrap").classList.toggle("hidden", !!m.loggedIn);
+        $("loginwrap").classList.toggle("hidden", !!m.loggedIn && !m.reauth);
+        $("spbtn").textContent = m.loggedIn && m.reauth ? "Reconnect Spotify (lets the TV play music)" : "Connect Spotify on the TV";
         if (m.loggedIn && !S.pendingToken) setSpotifyStatus("");
         $("offset").textContent = "(" + (m.offset >= 0 ? "+" : "") + Number(m.offset || 0).toFixed(1) + " s)";
         if (m.track) {
@@ -221,17 +222,17 @@
     if (q) { send({ t: "search", q: q }); $("q").blur(); }
   });
   $("spbtn").addEventListener("click", function () {
-    if (!Spotify.isConfigured()) { msg("Spotify Client ID missing in config.js"); return; }
+    if (!SpotifyAPI.isConfigured()) { msg("Spotify Client ID missing in config.js"); return; }
     localStorage.setItem("mic_name", S.name);
     localStorage.setItem("mic_room", S.room);
     $("spbtn").textContent = "Opening Spotify…";
-    Spotify.login();
+    SpotifyAPI.login();
   });
 
   // Returning from Spotify login on this phone → hand the login to the TV.
-  Spotify.handleCallback().then(function (done) {
+  SpotifyAPI.handleCallback().then(function (done) {
     if (done) {
-      var rt = Spotify.takeRefreshToken();
+      var rt = SpotifyAPI.takeRefreshToken();
       if (rt) { S.pendingToken = rt; localStorage.setItem("mic_pending_rt", rt); }
       if (S.room && S.name) {
         enterMain();                       // reconnect to the TV right away

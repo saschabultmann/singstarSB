@@ -20,6 +20,7 @@
     offset: Number(localStorage.getItem("tv_offset") || 0),
     lyrics: null, lines: [], budget: [], lineStats: {}, nextFinal: 0, resultsShown: false,
     pollBackoff: 0,
+    player: null, tvDevice: null, playerStatus: "none", // none|loading|ready|unsupported|reauth
   };
 
   // ---------- helpers ----------
@@ -130,8 +131,11 @@
       case "ctl": control(p, msg.a); break;
       case "spotify":
         if (msg.rt) {
-          Spotify.adoptRefreshToken(msg.rt).then(function () {
+          SpotifyAPI.adoptRefreshToken(msg.rt).then(function () {
             S.loggedIn = true; updateLobby(); toast("Spotify connected by " + p.name); poll(true);
+            if (S.playerStatus === "reauth") S.playerStatus = "none";
+            if (S.player) { S.player.disconnect(); S.player = null; S.tvDevice = null; }
+            initPlayer();
             send(p, { t: "spotify_ok" });
             broadcastState();
           }, function (e) { send(p, { t: "spotify_fail", msg: e.message }); });
@@ -179,6 +183,7 @@
   function sendState(p) {
     send(p, {
       t: "state", loggedIn: S.loggedIn, playing: S.playing, score: p.score,
+      reauth: S.playerStatus === "reauth", tvSpeaker: S.playerStatus,
       track: S.track ? { name: S.track.name, artist: artistOf(S.track) } : null,
       offset: S.offset,
       lyrics: S.lines.length ? "synced" : (S.lyrics && S.lyrics.plain ? "plain" : (S.track ? "none" : "")),
@@ -191,11 +196,52 @@
     return (t.artists || []).map(function (a) { return a.name; }).join(", ");
   }
 
+  // ---------- TV as Spotify speaker (Web Playback SDK) ----------
+  function initPlayer() {
+    if (!S.loggedIn || S.player || S.playerStatus === "loading") return;
+    if (!SpotifyAPI.hasStreaming()) { S.playerStatus = "reauth"; updateLobby(); broadcastState(); return; }
+    S.playerStatus = "loading";
+    window.onSpotifyWebPlaybackSDKReady = function () {
+      var player = new window.Spotify.Player({
+        name: "SingStar TV",
+        getOAuthToken: function (cb) { SpotifyAPI.accessToken().then(cb, function () {}); },
+        volume: 0.8,
+      });
+      player.addListener("ready", function (e) {
+        S.tvDevice = e.device_id; S.playerStatus = "ready";
+        toast("🔊 TV is ready as Spotify speaker"); updateLobby(); broadcastState();
+      });
+      player.addListener("not_ready", function () { S.tvDevice = null; });
+      player.addListener("initialization_error", function () { S.playerStatus = "unsupported"; updateLobby(); broadcastState(); });
+      player.addListener("account_error", function () { S.playerStatus = "unsupported"; updateLobby(); broadcastState(); });
+      player.addListener("authentication_error", function () {
+        S.playerStatus = "reauth"; S.player = null; updateLobby(); broadcastState();
+      });
+      S.player = player;
+      player.connect().then(function (ok) { if (!ok && S.playerStatus === "loading") { S.playerStatus = "unsupported"; updateLobby(); } });
+    };
+    var sc = document.createElement("script");
+    sc.src = "https://sdk.scdn.co/spotify-player.js";
+    sc.onerror = function () { S.playerStatus = "unsupported"; updateLobby(); };
+    document.body.appendChild(sc);
+  }
+  // Browsers only allow sound after a key press / tap on the page.
+  function activateSound() { if (S.player && S.player.activateElement) S.player.activateElement(); }
+  document.addEventListener("keydown", activateSound);
+  document.addEventListener("click", activateSound);
+
+  function noDeviceMessage() {
+    if (S.playerStatus === "reauth") return "Tap “Connect Spotify on the TV” once more on your phone – then the TV can play the music itself.";
+    if (S.playerStatus === "unsupported") return "This TV browser can't play Spotify. Open the Spotify app on a phone, laptop or speaker (play & pause any song once), then tap Sing again.";
+    if (S.playerStatus === "loading") return "The TV speaker is still starting – try again in a few seconds.";
+    return "No Spotify device found. Open the Spotify app on a phone, laptop or speaker (play & pause any song once), then tap Sing again.";
+  }
+
   // ---------- Spotify control ----------
   function doSearch(p, q) {
     if (!S.loggedIn) { send(p, { t: "error", msg: "Connect Spotify first." }); return; }
     if (!q.trim()) return;
-    Spotify.api("GET", "/search?type=track&limit=10&q=" + encodeURIComponent(q)).then(function (r) {
+    SpotifyAPI.api("GET", "/search?type=track&limit=10&q=" + encodeURIComponent(q)).then(function (r) {
       var items = ((r && r.tracks && r.tracks.items) || []).map(function (t) {
         var imgs = (t.album && t.album.images) || [];
         return { uri: t.uri, name: t.name, artist: artistOf(t), image: imgs.length ? imgs[imgs.length - 1].url : "" };
@@ -207,11 +253,13 @@
   function withDevice(fn) {
     return fn("").catch(function (e) {
       if (e.status !== 404) throw e;
-      return Spotify.api("GET", "/me/player/devices").then(function (r) {
+      return SpotifyAPI.api("GET", "/me/player/devices").then(function (r) {
         var devs = (r && r.devices) || [];
-        if (!devs.length) throw new Error("No Spotify device found. Open Spotify on a phone, speaker or TV, then try again.");
-        var d = devs.filter(function (x) { return x.is_active; })[0] || devs[0];
-        return fn(d.id);
+        var active = devs.filter(function (x) { return x.is_active; })[0];
+        var id = active ? active.id : (S.tvDevice || (devs[0] && devs[0].id));
+        if (!id) throw new Error(noDeviceMessage());
+        if (id === S.tvDevice) activateSound();
+        return fn(id);
       });
     });
   }
@@ -220,8 +268,8 @@
     if (!uri) return;
     var action = function (deviceId) {
       var dq = deviceId ? "device_id=" + encodeURIComponent(deviceId) : "";
-      if (queue) return Spotify.api("POST", "/me/player/queue?uri=" + encodeURIComponent(uri) + (dq ? "&" + dq : ""));
-      return Spotify.api("PUT", "/me/player/play" + (dq ? "?" + dq : ""), { uris: [uri] });
+      if (queue) return SpotifyAPI.api("POST", "/me/player/queue?uri=" + encodeURIComponent(uri) + (dq ? "&" + dq : ""));
+      return SpotifyAPI.api("PUT", "/me/player/play" + (dq ? "?" + dq : ""), { uris: [uri] });
     };
     withDevice(action).then(function () {
       send(p, { t: "info", msg: queue ? "Added to queue" : "Starting…" });
@@ -237,10 +285,10 @@
       next: ["POST", "/me/player/next"], prev: ["POST", "/me/player/previous"],
     };
     if (a === "offset+" || a === "offset-") { changeOffset(a === "offset+" ? 0.1 : -0.1); return; }
-    if (a === "restart") { Spotify.api("PUT", "/me/player/seek?position_ms=0").then(function () { poll(true); }, function () {}); return; }
+    if (a === "restart") { SpotifyAPI.api("PUT", "/me/player/seek?position_ms=0").then(function () { poll(true); }, function () {}); return; }
     var c = map[a];
     if (!c || !S.loggedIn) return;
-    withDevice(function (d) { return Spotify.api(c[0], c[1] + (d ? "?device_id=" + d : "")); })
+    withDevice(function (d) { return SpotifyAPI.api(c[0], c[1] + (d ? "?device_id=" + d : "")); })
       .then(function () { setTimeout(function () { poll(true); }, 500); }, function (e) { send(p, { t: "error", msg: e.message }); });
   }
 
@@ -257,7 +305,7 @@
     if (now !== true && S.pollBackoff > Date.now()) { pollTimer = setTimeout(poll, POLL_MS); return; }
     if (!S.loggedIn) { pollTimer = setTimeout(poll, POLL_MS); return; }
     var t0 = performance.now();
-    Spotify.api("GET", "/me/player").then(function (r) {
+    SpotifyAPI.api("GET", "/me/player").then(function (r) {
       var mid = (t0 + performance.now()) / 2;
       if (!r || !r.item || r.item.type !== "track") { if (S.track) setTrack(null); S.playing = false; updateLobby(); return; }
       var prog = r.progress_ms / 1000;
@@ -277,7 +325,7 @@
     }).catch(function (e) {
       if (e.status === 429) S.pollBackoff = Date.now() + 10000;
       if (!e.status && /invalid|revoked|not logged in/i.test(e.message || "")) {
-        Spotify.logout(); S.loggedIn = false; updateLobby(); broadcastState();
+        SpotifyAPI.logout(); S.loggedIn = false; updateLobby(); broadcastState();
       }
     }).then(function () { pollTimer = setTimeout(poll, POLL_MS); });
   }
@@ -469,10 +517,15 @@
     $("lobby").classList.toggle("hidden", !showLobby);
     $("loginbox").classList.toggle("hidden", S.loggedIn);
     $("waitmsg").classList.toggle("hidden", !S.loggedIn);
-    if (!Spotify.isConfigured()) {
+    var sp = { ready: "🔊 Music plays on this TV (press OK on the remote once if there's no sound).",
+      loading: "Setting up the TV as Spotify speaker…",
+      unsupported: "This TV browser can't play Spotify itself – open the Spotify app on a phone, laptop or speaker.",
+      reauth: "To play music on this TV, tap “Connect Spotify on the TV” once more on your phone." }[S.playerStatus] || "";
+    $("speakermsg").textContent = S.loggedIn ? sp : "";
+    if (!SpotifyAPI.isConfigured()) {
       $("loginmsg").textContent = "Setup missing: add your Spotify Client ID to config.js.";
       $("loginbtn").classList.add("hidden");
-    } else if (!Spotify.canLoginHere()) {
+    } else if (!SpotifyAPI.canLoginHere()) {
       $("loginmsg").textContent = "Join with a phone and tap “Connect Spotify” there.";
       $("loginbtn").classList.add("hidden");
     }
@@ -483,17 +536,18 @@
     if (e.key === "ArrowRight") changeOffset(0.1);
     else if (e.key === "ArrowLeft") changeOffset(-0.1);
   });
-  $("loginbtn").addEventListener("click", function () { Spotify.login(); });
+  $("loginbtn").addEventListener("click", function () { SpotifyAPI.login(); });
 
   // ---------- boot ----------
   function boot() {
     resize();
     startPeer();
-    Spotify.handleCallback().catch(function (e) { toast("Spotify login failed: " + e.message); })
+    SpotifyAPI.handleCallback().catch(function (e) { toast("Spotify login failed: " + e.message); })
       .then(function () {
-        S.loggedIn = Spotify.hasLogin();
+        S.loggedIn = SpotifyAPI.hasLogin();
         updateLobby();
         poll(true);
+        initPlayer();
       });
     requestAnimationFrame(frame);
     setInterval(broadcastState, 3000);

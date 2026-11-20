@@ -2,7 +2,7 @@
 (function (root) {
   "use strict";
 
-  var SCOPES = "user-read-playback-state user-modify-playback-state user-read-currently-playing";
+  var SCOPES = "user-read-playback-state user-modify-playback-state user-read-currently-playing streaming user-read-email user-read-private";
   var LS = { access: "sp_access", refresh: "sp_refresh", expires: "sp_expires", verifier: "sp_verifier", redirect: "sp_redirect" };
 
   function clientId() {
@@ -58,6 +58,7 @@
     if (t.access_token) localStorage.setItem(LS.access, t.access_token);
     if (t.refresh_token) localStorage.setItem(LS.refresh, t.refresh_token);
     if (t.expires_in) localStorage.setItem(LS.expires, String(Date.now() + (t.expires_in - 60) * 1000));
+    if (t.scope) localStorage.setItem("sp_scope", t.scope);
   }
 
   function tokenRequest(body) {
@@ -113,6 +114,8 @@
     return refresh();
   }
 
+  function hasStreaming() { return (localStorage.getItem("sp_scope") || "").indexOf("streaming") >= 0; }
+
   function hasLogin() { return !!localStorage.getItem(LS.refresh); }
 
   // Used when a phone logged in and hands its refresh token to the TV.
@@ -131,6 +134,7 @@
   }
 
   function logout() {
+    localStorage.removeItem("sp_scope");
     [LS.access, LS.refresh, LS.expires].forEach(function (k) { localStorage.removeItem(k); });
   }
 
@@ -162,9 +166,9 @@
     });
   }
 
-  root.Spotify = {
+  root.SpotifyAPI = {
     isConfigured: isConfigured, canLoginHere: canLoginHere, login: login, handleCallback: handleCallback,
     hasLogin: hasLogin, adoptRefreshToken: adoptRefreshToken, takeRefreshToken: takeRefreshToken,
-    logout: logout, api: api,
+    logout: logout, api: api, accessToken: accessToken, hasStreaming: hasStreaming,
   };
 })(window);
