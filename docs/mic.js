@@ -10,7 +10,7 @@
     room: "",
     cid: localStorage.getItem("mic_cid"),
     peer: null, conn: null, joined: false,
-    pendingToken: null,
+    pendingToken: localStorage.getItem("mic_pending_rt"),
     audio: null, analyser: null, buf: null,
     floor: 0.003, sens: Number(localStorage.getItem("mic_sens") || 1),
   };
@@ -30,6 +30,7 @@
     msg._t = setTimeout(function () { m.classList.remove("show"); }, 3000);
   }
   function setStatus(s) { $("status").textContent = s; }
+  function setSpotifyStatus(s) { $("spstatus").textContent = s; }
   function send(o) { if (S.conn && S.conn.open) { try { S.conn.send(o); } catch (e) { /* ignore */ } } }
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; });
@@ -56,7 +57,7 @@
     conn.on("open", function () {
       setStatus("Connected ✓");
       send({ t: "hello", name: S.name, cid: S.cid });
-      if (S.pendingToken) { send({ t: "spotify", rt: S.pendingToken }); S.pendingToken = null; }
+      if (S.pendingToken) { send({ t: "spotify", rt: S.pendingToken }); setSpotifyStatus("Sending Spotify login to the TV…"); }
     });
     conn.on("data", onData);
     conn.on("close", function () {
@@ -74,6 +75,7 @@
       case "state":
         $("score").textContent = m.score || 0;
         $("loginwrap").classList.toggle("hidden", !!m.loggedIn);
+        if (m.loggedIn && !S.pendingToken) setSpotifyStatus("");
         $("offset").textContent = "(" + (m.offset >= 0 ? "+" : "") + Number(m.offset || 0).toFixed(1) + " s)";
         if (m.track) {
           var note = m.lyrics === "none" ? "<br><small>No lyrics found 😕</small>" : m.lyrics === "plain" ? "<br><small>Unsynced lyrics – no scoring</small>" : "";
@@ -96,6 +98,15 @@
         msg("🏆 " + r.map(function (x, i) { return (i + 1) + ". " + x.name + " " + x.score; }).join("  "));
         break;
       case "songs": renderResults(m.items || []); break;
+      case "spotify_ok":
+        S.pendingToken = null; localStorage.removeItem("mic_pending_rt");
+        setSpotifyStatus(""); msg("✅ Spotify is now connected on the TV");
+        break;
+      case "spotify_fail":
+        S.pendingToken = null; localStorage.removeItem("mic_pending_rt");
+        setSpotifyStatus("Spotify login failed: " + m.msg + " – try again");
+        $("spbtn").textContent = "Connect Spotify (Premium)";
+        break;
       case "error": msg("⚠️ " + m.msg); break;
       case "info": msg(m.msg); break;
     }
@@ -166,21 +177,12 @@
   }
 
   // ---------- UI ----------
-  function join() {
-    S.name = $("name").value.trim() || "Singer";
-    S.room = $("room").value.trim().toUpperCase();
-    if (S.room.length !== 4) { msg("Enter the 4-letter room code from the TV"); return; }
-    localStorage.setItem("mic_name", S.name);
-    localStorage.setItem("mic_room", S.room);
+  function enterMain() {
     $("myname").textContent = S.name;
     $("join").classList.add("hidden");
     $("main").classList.remove("hidden");
     S.joined = true;
     connect();
-    startMic().catch(function (e) {
-      msg("🎤 Microphone blocked: " + e.message);
-      setStatus("Microphone not available – allow mic access and reload");
-    });
     if (navigator.wakeLock) {
       var lock = function () { navigator.wakeLock.request("screen").catch(function () {}); };
       lock();
@@ -188,7 +190,27 @@
     }
   }
 
+  function startMicNow() {
+    if (S.analyser) return;
+    $("micbtn").classList.add("hidden");
+    startMic().catch(function (e) {
+      msg("🎤 Microphone blocked: " + e.message);
+      $("micbtn").classList.remove("hidden");
+    });
+  }
+
+  function join() {
+    S.name = $("name").value.trim() || "Singer";
+    S.room = $("room").value.trim().toUpperCase();
+    if (S.room.length !== 4) { msg("Enter the 4-letter room code from the TV"); return; }
+    localStorage.setItem("mic_name", S.name);
+    localStorage.setItem("mic_room", S.room);
+    enterMain();
+    startMicNow();
+  }
+
   $("joinbtn").addEventListener("click", join);
+  $("micbtn").addEventListener("click", startMicNow);
   $("sens").addEventListener("input", function () { S.sens = Number(this.value); localStorage.setItem("mic_sens", String(S.sens)); });
   document.querySelectorAll("[data-a]").forEach(function (b) {
     b.addEventListener("click", function () { send({ t: "ctl", a: b.getAttribute("data-a") }); });
@@ -200,18 +222,23 @@
   });
   $("spbtn").addEventListener("click", function () {
     if (!Spotify.isConfigured()) { msg("Spotify Client ID missing in config.js"); return; }
+    localStorage.setItem("mic_name", S.name);
+    localStorage.setItem("mic_room", S.room);
+    $("spbtn").textContent = "Opening Spotify…";
     Spotify.login();
   });
 
   // Returning from Spotify login on this phone → hand the login to the TV.
   Spotify.handleCallback().then(function (done) {
     if (done) {
-      S.pendingToken = Spotify.takeRefreshToken();
-      msg("Spotify connected – sending to TV…");
+      var rt = Spotify.takeRefreshToken();
+      if (rt) { S.pendingToken = rt; localStorage.setItem("mic_pending_rt", rt); }
       if (S.room && S.name) {
-        // mic access needs a tap on iOS, so show the join screen pre-filled
-        $("name").value = S.name; $("room").value = S.room;
-        $("joinbtn").textContent = "Continue (finish Spotify setup)";
+        enterMain();                       // reconnect to the TV right away
+        $("micbtn").classList.remove("hidden"); // mic needs a tap on iOS
+        setSpotifyStatus("Sending Spotify login to the TV…");
+      } else {
+        msg("Spotify connected – join the TV room to finish");
       }
     }
   }, function (e) { msg("Spotify login failed: " + e.message); });

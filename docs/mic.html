@@ -63,6 +63,7 @@
     <div id="ring"></div>
     <div id="note">–</div>
     <div id="rating"></div>
+    <button id="micbtn" class="hidden" style="z-index:1;margin-top:8px">🎤 Tap to start microphone</button>
   </div>
 
   <div class="card">
@@ -72,9 +73,11 @@
 
   <div class="card" id="spotifybox">
     <div id="song">Nothing playing yet</div>
-    <div id="loginwrap" class="hidden" style="margin-top:12px">
-      <button id="spbtn" style="width:100%;background:#1db954">Connect Spotify (Premium)</button>
+    <div id="loginwrap" style="margin-top:12px">
+      <button id="spbtn" style="width:100%;background:#1db954">Connect Spotify on the TV</button>
+      <p style="font-size:13px;opacity:.65;margin:8px 0 0">Log in with your Spotify Premium account here – the TV takes over the login, no typing on the TV needed.</p>
     </div>
+    <div id="spstatus" style="font-size:14px;color:var(--accent);margin-top:8px"></div>
     <div class="row ctl" style="margin-top:12px">
       <button class="secondary" data-a="prev">⏮</button>
       <button class="secondary" data-a="pause">⏸</button>

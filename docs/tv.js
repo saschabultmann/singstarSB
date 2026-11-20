@@ -132,8 +132,9 @@
         if (msg.rt) {
           Spotify.adoptRefreshToken(msg.rt).then(function () {
             S.loggedIn = true; updateLobby(); toast("Spotify connected by " + p.name); poll(true);
+            send(p, { t: "spotify_ok" });
             broadcastState();
-          }, function (e) { send(p, { t: "error", msg: "Spotify login failed: " + e.message }); });
+          }, function (e) { send(p, { t: "spotify_fail", msg: e.message }); });
         }
         break;
     }
