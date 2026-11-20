@@ -1,0 +1,87 @@
+name: iOS build → TestFlight
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["app/**", ".github/workflows/ios-build.yml"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EAS_NO_VCS: "1"
+      EXPO_ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      EXPO_APPLE_TEAM_TYPE: ${{ vars.APPLE_TEAM_TYPE || 'INDIVIDUAL' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check required settings
+        env:
+          ASC_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+          ASC_APP_ID: ${{ vars.ASC_APP_ID }}
+        run: |
+          missing=""
+          [ -z "$EXPO_TOKEN" ] && missing="$missing EXPO_TOKEN(secret)"
+          [ -z "$ASC_P8" ] && missing="$missing ASC_API_KEY_P8(secret)"
+          [ -z "$EXPO_ASC_KEY_ID" ] && missing="$missing ASC_KEY_ID(secret)"
+          [ -z "$EXPO_ASC_ISSUER_ID" ] && missing="$missing ASC_ISSUER_ID(secret)"
+          [ -z "$EXPO_APPLE_TEAM_ID" ] && missing="$missing APPLE_TEAM_ID(secret)"
+          [ -z "$PROJECT_ID" ] && missing="$missing EAS_PROJECT_ID(variable)"
+          [ -z "$ASC_APP_ID" ] && missing="$missing ASC_APP_ID(variable)"
+          if [ -n "$missing" ]; then echo "::error::Missing settings:$missing — see SETUP.md"; exit 1; fi
+
+      - name: Install dependencies (versions matched to latest Expo SDK)
+        run: |
+          npm install expo@latest
+          npx expo install react react-native react-native-webview expo-status-bar expo-keep-awake expo-constants
+
+      - name: Write build config + App Store Connect key
+        env:
+          ASC_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+          BUNDLE_ID: ${{ vars.BUNDLE_ID }}
+          EXPO_OWNER: ${{ vars.EXPO_OWNER }}
+          EXPO_SLUG: ${{ vars.EXPO_SLUG }}
+          ASC_APP_ID: ${{ vars.ASC_APP_ID }}
+        run: |
+          printf '%s\n' "$ASC_P8" > "$RUNNER_TEMP/asc_key.p8"
+          echo "EXPO_ASC_API_KEY_PATH=$RUNNER_TEMP/asc_key.p8" >> "$GITHUB_ENV"
+          node -e '
+            const fs = require("fs");
+            const owner = process.env.OWNER.toLowerCase();
+            const cfg = {
+              WEB_URL: `https://${owner}.github.io/${process.env.REPO}`,
+              EAS_PROJECT_ID: process.env.PROJECT_ID,
+              BUNDLE_ID: process.env.BUNDLE_ID || undefined,
+              EXPO_OWNER: process.env.EXPO_OWNER || undefined,
+              EXPO_SLUG: process.env.EXPO_SLUG || undefined,
+            };
+            fs.writeFileSync("build-config.json", JSON.stringify(cfg, null, 2));
+            const eas = JSON.parse(fs.readFileSync("eas.json", "utf8"));
+            eas.submit.production.ios = {
+              ascAppId: process.env.ASC_APP_ID,
+              ascApiKeyPath: process.env.RUNNER_TEMP + "/asc_key.p8",
+              ascApiKeyId: process.env.EXPO_ASC_KEY_ID,
+              ascApiKeyIssuerId: process.env.EXPO_ASC_ISSUER_ID,
+            };
+            fs.writeFileSync("eas.json", JSON.stringify(eas, null, 2));
+            console.log("Web URL:", cfg.WEB_URL);
+          '
+
+      - name: Build on EAS and submit to TestFlight
+        run: npx --yes eas-cli@latest build --platform ios --profile production --non-interactive --auto-submit --wait

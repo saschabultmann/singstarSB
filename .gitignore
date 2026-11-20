@@ -1,0 +1,4 @@
+node_modules/
+.expo/
+app/build-config.json
+.DS_Store

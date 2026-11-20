@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SingStar Party – TV</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  html, body { height: 100%; overflow: hidden; }
+  #bg { position: fixed; inset: -40px; background-size: cover; background-position: center; filter: blur(40px) brightness(0.35) saturate(1.4); transition: background-image 1s; z-index: -1; }
+  #top { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 2vw; padding: 1.5vh 2vw; }
+  #room { font-size: 2.2vh; opacity: .85; }
+  #room b { font-size: 3vh; letter-spacing: .3vh; color: var(--accent); }
+  #players { display: flex; gap: 1vw; flex: 1; justify-content: flex-end; flex-wrap: wrap; }
+  .chip { padding: .8vh 1.4vw; border-radius: 99px; background: rgba(255,255,255,.08); border: .3vh solid var(--c); font-size: 2.4vh; display: flex; gap: .8vw; align-items: center; }
+  .chip .sc { font-weight: 800; font-variant-numeric: tabular-nums; }
+  .chip .rate { font-size: 1.8vh; color: var(--c); min-width: 8vw; }
+  .chip.off { opacity: .4; }
+  #song { position: fixed; top: 9vh; left: 0; right: 0; text-align: center; }
+  #song .t { font-size: 3.6vh; font-weight: 800; }
+  #song .a { font-size: 2.4vh; opacity: .7; }
+  #lyrics { position: fixed; top: 22vh; left: 4vw; right: 4vw; height: 44vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 2vh; }
+  .ln { font-size: 4vh; opacity: .45; transition: all .3s; }
+  .ln.prev { font-size: 3vh; opacity: .25; }
+  .ln.cur { font-size: 6.5vh; font-weight: 800; opacity: 1;
+    background: linear-gradient(90deg, var(--accent) var(--p, 0%), #fff var(--p, 0%));
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #countdown { font-size: 5vh; color: var(--accent); letter-spacing: 2vh; height: 6vh; }
+  #pitch { position: fixed; left: 0; right: 0; bottom: 0; height: 30vh; width: 100%; }
+  #nowline { position: fixed; bottom: 0; height: 30vh; left: 75%; width: .3vh; background: rgba(255,255,255,.35); }
+  .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3vh; background: rgba(10,8,25,.92); text-align: center; padding: 4vw; }
+  .overlay h1 { font-size: 7vh; margin: 0; }
+  .overlay p { font-size: 2.6vh; opacity: .85; max-width: 70vw; margin: 0; }
+  #qr canvas, #qr img, #qr svg { width: 30vh; height: 30vh; background: #fff; padding: 1.5vh; border-radius: 2vh; }
+  #miniqr { width: 9vh; height: 9vh; background: #fff; padding: .5vh; border-radius: 1vh; }
+  #miniqr svg { width: 100%; height: 100%; }
+  .big { font-size: 3vh; padding: 2vh 4vw; }
+  #results ol { font-size: 4vh; text-align: left; }
+  #results li { margin: 1vh 0; }
+  #toast { position: fixed; bottom: 33vh; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.7); padding: 1.2vh 2vw; border-radius: 1vh; font-size: 2.2vh; opacity: 0; transition: opacity .4s; }
+  #toast.show { opacity: 1; }
+  #plain { white-space: pre-wrap; font-size: 2.6vh; opacity: .8; overflow: hidden; max-height: 44vh; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body class="tv">
+<div id="bg"></div>
+
+<div id="top">
+  <div id="miniqr"></div>
+  <div id="room">Room <b id="roomcode">----</b><br><span id="joinurl"></span></div>
+  <div id="players"></div>
+</div>
+
+<div id="song"><div class="t" id="title"></div><div class="a" id="artist"></div></div>
+
+<div id="lyrics">
+  <div id="countdown"></div>
+  <div class="ln prev" id="l0"></div>
+  <div class="ln cur" id="l1"></div>
+  <div class="ln" id="l2"></div>
+  <div class="ln" id="l3"></div>
+  <div id="plain" class="hidden"></div>
+</div>
+
+<canvas id="pitch"></canvas>
+<div id="nowline"></div>
+<div id="toast"></div>
+
+<!-- Setup / lobby -->
+<div class="overlay" id="lobby">
+  <h1>🎤 SingStar Party</h1>
+  <div id="qr"></div>
+  <p>Scan with your phone to join as a microphone.<br>Room code: <b id="roomcode2" style="color:var(--accent)">----</b></p>
+  <div id="loginbox">
+    <p id="loginmsg">Connect Spotify (Premium) – here on the TV, or from any phone after joining (“Connect Spotify” on the phone).</p>
+    <button class="big" id="loginbtn">Connect Spotify on this TV</button>
+  </div>
+  <p id="waitmsg" class="hidden">Spotify connected ✓ – pick a song on your phone, or start any song in the Spotify app.</p>
+</div>
+
+<div class="overlay hidden" id="results">
+  <h1>🏆 Results</h1>
+  <ol id="ranking"></ol>
+</div>
+
+<script src="config.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="spotify.js"></script>
+<script src="lyrics.js"></script>
+<script src="tv.js"></script>
+</body>
+</html>

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#120d2b">
+<title>SingStar Party – Mic</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); min-height: 100vh; }
+  .card { background: rgba(255,255,255,.06); border-radius: 20px; padding: 16px; margin-bottom: 14px; }
+  h1 { font-size: 26px; margin: 8px 0 18px; }
+  label { display: block; font-size: 14px; opacity: .7; margin: 10px 0 6px; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row > * { flex: 1; }
+  #hdr { display: flex; align-items: center; gap: 12px; }
+  #dot { width: 18px; height: 18px; border-radius: 50%; background: var(--c, #888); box-shadow: 0 0 12px var(--c, #888); flex: none; }
+  #hdr .nm { font-weight: 800; font-size: 20px; flex: 1; }
+  #score { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  #status { font-size: 13px; opacity: .7; margin-top: 4px; }
+  #mic { position: relative; height: 200px; display: flex; align-items: center; justify-content: center; flex-direction: column; }
+  #ring { position: absolute; width: 150px; height: 150px; border-radius: 50%; border: 6px solid var(--c, #888); transform: scale(var(--s, 1)); transition: transform .06s; opacity: .8; }
+  #note { font-size: 44px; font-weight: 800; z-index: 1; }
+  #rating { font-size: 22px; font-weight: 800; color: var(--accent); height: 28px; z-index: 1; }
+  #song { font-size: 15px; }
+  #song b { display: block; font-size: 17px; }
+  .res { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .res img { width: 44px; height: 44px; border-radius: 6px; flex: none; background: #333; }
+  .res .info { flex: 1; min-width: 0; }
+  .res .info div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .res .info .ar { font-size: 13px; opacity: .65; }
+  .res button { padding: 10px 12px; font-size: 14px; }
+  .ctl button { padding: 14px 0; font-size: 20px; }
+  input[type=range] { padding: 0; border: 0; background: none; }
+  #msg { position: fixed; left: 16px; right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); background: #000c; padding: 12px 14px; border-radius: 12px; font-size: 14px; opacity: 0; transition: opacity .3s; pointer-events: none; }
+  #msg.show { opacity: 1; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<section id="join">
+  <h1>🎤 SingStar Party</h1>
+  <div class="card">
+    <label for="name">Your name</label>
+    <input id="name" maxlength="16" autocomplete="nickname" placeholder="e.g. Sascha">
+    <label for="room">Room code (shown on the TV)</label>
+    <input id="room" maxlength="4" autocapitalize="characters" placeholder="ABCD" style="text-transform:uppercase;letter-spacing:4px">
+    <div style="height:16px"></div>
+    <button id="joinbtn" style="width:100%">Join &amp; start microphone</button>
+  </div>
+  <p style="font-size:13px;opacity:.6">Hold your phone like a microphone, close to your mouth. Music should come from a speaker or the TV, not from this phone.</p>
+</section>
+
+<section id="main" class="hidden">
+  <div class="card">
+    <div id="hdr"><div id="dot"></div><div class="nm" id="myname"></div><div id="score">0</div></div>
+    <div id="status">Connecting…</div>
+  </div>
+
+  <div class="card" id="mic">
+    <div id="ring"></div>
+    <div id="note">–</div>
+    <div id="rating"></div>
+  </div>
+
+  <div class="card">
+    <label for="sens">Mic sensitivity</label>
+    <input type="range" id="sens" min="0.3" max="3" step="0.1" value="1">
+  </div>
+
+  <div class="card" id="spotifybox">
+    <div id="song">Nothing playing yet</div>
+    <div id="loginwrap" class="hidden" style="margin-top:12px">
+      <button id="spbtn" style="width:100%;background:#1db954">Connect Spotify (Premium)</button>
+    </div>
+    <div class="row ctl" style="margin-top:12px">
+      <button class="secondary" data-a="prev">⏮</button>
+      <button class="secondary" data-a="pause">⏸</button>
+      <button class="secondary" data-a="resume">▶️</button>
+      <button class="secondary" data-a="next">⏭</button>
+    </div>
+    <label>Lyrics timing <span id="offset"></span></label>
+    <div class="row ctl">
+      <button class="secondary" data-a="offset-">Earlier</button>
+      <button class="secondary" data-a="restart">↺ Restart song</button>
+      <button class="secondary" data-a="offset+">Later</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <form id="searchform" class="row">
+      <input id="q" type="search" placeholder="Search a song on Spotify" enterkeyhint="search">
+      <button style="flex:none">Search</button>
+    </form>
+    <div id="results"></div>
+  </div>
+</section>
+
+<div id="msg"></div>
+
+<script src="config.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="spotify.js"></script>
+<script src="pitch.js"></script>
+<script src="mic.js"></script>
+</body>
+</html>
