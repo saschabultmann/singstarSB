@@ -28,6 +28,8 @@
       var next = i + 1 < lines.length ? lines[i + 1].start : lines[i].start + 6;
       var est = Math.min(8, Math.max(2.5, lines[i].text.length * 0.12));
       lines[i].end = Math.min(next, lines[i].start + est);
+      // karaoke wipe runs until shortly before the next line (singers hold the last word)
+      lines[i].wipe = Math.max(lines[i].end, Math.min(next - 0.25, lines[i].start + 10));
     }
     return lines.filter(function (l, i) { return l.text || i === 0 || lines[i - 1].text; });
   }
@@ -47,9 +49,12 @@
       var s = new URLSearchParams({ track_name: title, artist_name: artist });
       return fetchJSON("https://lrclib.net/api/search?" + s.toString()).then(function (list) {
         if (!list || !list.length) return hit;
-        var synced = list.filter(function (x) { return x.syncedLyrics; });
+        // only trust synced lyrics timed for (nearly) the same recording length
+        var synced = list.filter(function (x) { return x.syncedLyrics && Math.abs(x.duration - duration) <= 4; });
         synced.sort(function (a, b) { return Math.abs(a.duration - duration) - Math.abs(b.duration - duration); });
-        return synced[0] || hit || list[0];
+        if (synced[0]) return synced[0];
+        var plain = list.filter(function (x) { return x.plainLyrics; })[0];
+        return hit || (plain ? { plainLyrics: plain.plainLyrics } : null);
       });
     }).then(function (hit) {
       if (!hit) return null;

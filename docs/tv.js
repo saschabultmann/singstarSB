@@ -16,8 +16,10 @@
     order: 0,
     loggedIn: false,
     track: null, playing: false,
-    anchorPerf: 0, anchorProg: 0,
-    offset: Number(localStorage.getItem("tv_offset") || 0),
+    // song clock: estimated (song position - local clock), median-filtered + slewed
+    clock: { samples: [], target: null, disp: null, paused: true, pausedPos: 0, outliers: 0, lastSlew: 0 },
+    deviceKey: "default", sdkActive: false,
+    offsets: loadOffsets(),
     lyrics: null, lines: [], budget: [], lineStats: {}, nextFinal: 0, resultsShown: false,
     pollBackoff: 0,
     player: null, tvDevice: null, playerStatus: "none", // none|loading|ready|unsupported|reauth
@@ -31,11 +33,58 @@
     clearTimeout(toast._t);
     toast._t = setTimeout(function () { t.classList.remove("show"); }, 2500);
   }
-  function songTime() {
-    var base = S.anchorProg;
-    if (S.playing) base += (performance.now() - S.anchorPerf) / 1000;
-    return base + S.offset;
+  // ---------- song clock ----------
+  function loadOffsets() {
+    var o = {};
+    try { o = JSON.parse(localStorage.getItem("tv_offsets") || "{}") || {}; } catch (e) { o = {}; }
+    if (o["default"] === undefined && localStorage.getItem("tv_offset")) o["default"] = Number(localStorage.getItem("tv_offset"));
+    return o;
   }
+  function curOffset() {
+    var v = S.offsets[S.deviceKey];
+    if (v === undefined) v = S.offsets["default"] || 0;
+    return v;
+  }
+  function median(a) {
+    var b = a.slice().sort(function (x, y) { return x - y; });
+    var m = b.length >> 1;
+    return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2;
+  }
+  function resetClock(pos) {
+    S.clock = { samples: [], target: null, disp: null, paused: true, pausedPos: pos || 0, outliers: 0, lastSlew: 0 };
+  }
+  // pos: song position (s) observed at local time perfMs. precise: from the TV's own player.
+  function clockSample(pos, perfMs, playing, precise) {
+    var c = S.clock;
+    if (!playing) { c.paused = true; c.pausedPos = pos; c.samples = []; c.target = c.disp = null; return; }
+    var o = pos - perfMs / 1000;
+    if (c.paused || !c.samples.length) { c.paused = false; c.samples = [o]; c.target = c.disp = o; c.outliers = 0; return; }
+    var med = median(c.samples);
+    if (Math.abs(o - med) > (precise ? 0.4 : 1.5)) {
+      // seek / jump: accept after confirmation (immediately if precise)
+      if (precise || ++c.outliers >= 2) { c.samples = [o]; c.target = c.disp = o; c.outliers = 0; }
+      return;
+    }
+    c.outliers = 0;
+    c.samples.push(o);
+    while (c.samples.length > (precise ? 4 : 10)) c.samples.shift();
+    c.target = median(c.samples);
+  }
+  function rawSongTime() {
+    var c = S.clock, now = performance.now();
+    if (c.paused || c.disp === null) return c.pausedPos;
+    // slew towards the target at most 4% speed change, so lyrics never jump or race
+    var dt = c.lastSlew ? Math.min(0.5, (now - c.lastSlew) / 1000) : 0;
+    c.lastSlew = now;
+    var diff = c.target - c.disp;
+    if (Math.abs(diff) > 1) c.disp = c.target;
+    else c.disp += Math.max(-0.04 * dt, Math.min(0.04 * dt, diff));
+    return now / 1000 + c.disp;
+  }
+  function songTime() {
+    return rawSongTime() + curOffset();
+  }
+  window.__songTime = function () { return rawSongTime(); }; // debug/test hook
   function foldDiff(a, b) {
     var d = Math.abs(a - b) % 12;
     return Math.min(d, 12 - d);
@@ -185,7 +234,7 @@
       t: "state", loggedIn: S.loggedIn, playing: S.playing, score: p.score,
       reauth: S.playerStatus === "reauth", tvSpeaker: S.playerStatus,
       track: S.track ? { name: S.track.name, artist: artistOf(S.track) } : null,
-      offset: S.offset,
+      offset: curOffset(), device: S.deviceKey,
       lyrics: S.lines.length ? "synced" : (S.lyrics && S.lyrics.plain ? "plain" : (S.track ? "none" : "")),
     });
   }
@@ -225,6 +274,17 @@
     sc.onerror = function () { S.playerStatus = "unsupported"; updateLobby(); };
     document.body.appendChild(sc);
   }
+  // Exact position from the TV's own player, 4x per second.
+  setInterval(function () {
+    if (!S.sdkActive || !S.player || !S.player.getCurrentState) return;
+    var t0 = performance.now();
+    S.player.getCurrentState().then(function (st) {
+      if (!st || !st.track_window || !st.track_window.current_track) return;
+      if (S.track && st.track_window.current_track.id && st.track_window.current_track.id !== S.track.id) return;
+      clockSample(st.position / 1000, (t0 + performance.now()) / 2, !st.paused, true);
+    }, function () {});
+  }, 250);
+
   // Browsers only allow sound after a key press / tap on the page.
   function activateSound() { if (S.player && S.player.activateElement) S.player.activateElement(); }
   document.addEventListener("keydown", activateSound);
@@ -293,9 +353,10 @@
   }
 
   function changeOffset(delta) {
-    S.offset = Math.round((S.offset + delta) * 10) / 10;
-    localStorage.setItem("tv_offset", String(S.offset));
-    toast("Lyrics timing " + (S.offset >= 0 ? "+" : "") + S.offset.toFixed(1) + " s");
+    var v = Math.round((curOffset() + delta) * 10) / 10;
+    S.offsets[S.deviceKey] = v;
+    try { localStorage.setItem("tv_offsets", JSON.stringify(S.offsets)); } catch (e) { /* ignore */ }
+    toast("Lyrics timing " + (v >= 0 ? "+" : "") + v.toFixed(1) + " s" + (S.deviceKey !== "default" ? " (saved for " + S.deviceKey + ")" : ""));
     broadcastState();
   }
 
@@ -310,17 +371,15 @@
       if (!r || !r.item || r.item.type !== "track") { if (S.track) setTrack(null); S.playing = false; updateLobby(); return; }
       var prog = r.progress_ms / 1000;
       if (!S.track || S.track.id !== r.item.id) setTrack(r.item);
+      var dev = r.device || {};
+      var key = dev.name || "default";
+      if (key !== S.deviceKey) { S.deviceKey = key; broadcastState(); }
+      S.sdkActive = !!(S.tvDevice && dev.id === S.tvDevice && S.player);
+      // When the TV itself plays, the local player gives exact positions (see sdkTick).
+      if (!S.sdkActive) clockSample(prog, mid, r.is_playing, false);
       var wasPlaying = S.playing;
-      var predicted = S.anchorProg + (wasPlaying ? (mid - S.anchorPerf) / 1000 : 0);
-      if (r.is_playing !== wasPlaying || Math.abs(predicted - prog) > 0.35) {
-        S.anchorProg = prog; S.anchorPerf = mid;
-      } else if (r.is_playing) {
-        // gentle drift correction
-        S.anchorProg = predicted + (prog - predicted) * 0.25;
-        S.anchorPerf = mid;
-      }
-      if (r.is_playing !== wasPlaying) { S.playing = r.is_playing; broadcastState(); }
       S.playing = r.is_playing;
+      if (r.is_playing !== wasPlaying) broadcastState();
       updateLobby();
     }).catch(function (e) {
       if (e.status === 429) S.pollBackoff = Date.now() + 10000;
@@ -336,7 +395,7 @@
     if (prev && (!track || prev.id !== track.id)) maybeShowResults();
     S.track = track;
     S.lines = []; S.budget = []; S.lineStats = {}; S.nextFinal = 0; S.lyrics = null; S.resultsShown = false;
-    S.anchorProg = 0; S.anchorPerf = performance.now();
+    resetClock(0);
     Object.keys(S.players).forEach(function (k) { var p = S.players[k]; p.score = 0; p.trail = []; p.rating = ""; });
     $("plain").classList.add("hidden");
     ["l0", "l1", "l2", "l3"].forEach(function (id) { $(id).textContent = ""; });
@@ -459,7 +518,7 @@
     $("l0").textContent = ci > 0 ? L[ci - 1].text : "";
     var curText = cur ? (cur.text || "♪") : "";
     $("l1").textContent = curText;
-    var p = cur && cur.text ? Math.max(0, Math.min(1, (t - cur.start) / ((cur.end - cur.start) * 0.9))) : 0;
+    var p = cur && cur.text ? Math.max(0, Math.min(1, (t - cur.start) / ((cur.wipe || cur.end) - cur.start))) : 0;
     $("l1").style.setProperty("--p", (p * 100).toFixed(1) + "%");
     $("l2").textContent = L[ci + 1] ? L[ci + 1].text : "";
     $("l3").textContent = L[ci + 2] ? L[ci + 2].text : "";

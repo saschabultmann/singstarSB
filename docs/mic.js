@@ -85,7 +85,8 @@
           reauth: "Tap Reconnect so the TV can play music itself." }[m.tvSpeaker] || "";
         $("tvspeaker").textContent = m.loggedIn ? sp : "";
         if (m.loggedIn && !S.pendingToken) setSpotifyStatus("");
-        $("offset").textContent = "(" + (m.offset >= 0 ? "+" : "") + Number(m.offset || 0).toFixed(1) + " s)";
+        $("offset").textContent = "(" + (m.offset >= 0 ? "+" : "") + Number(m.offset || 0).toFixed(1) + " s" +
+          (m.device && m.device !== "default" ? " · " + m.device : "") + ")";
         if (m.track) {
           var note = m.lyrics === "none" ? "<br><small>No lyrics found 😕</small>" : m.lyrics === "plain" ? "<br><small>Unsynced lyrics – no scoring</small>" : "";
           $("song").innerHTML = "<b>" + escapeHtml(m.track.name) + "</b>" + escapeHtml(m.track.artist) + (m.playing ? "" : " · paused") + note;
